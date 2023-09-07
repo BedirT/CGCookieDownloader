@@ -19,6 +19,7 @@ CGCookie Downloader is a tool designed to simplify the process of downloading co
 
 - Python 3.x
 - pip
+- Google Chrome
 
 ### Setup
 

@@ -18,7 +18,15 @@ logging.basicConfig(level=logging.INFO)
 def setup_browser() -> webdriver.Chrome:
     """Set up and return a Chrome browser instance."""
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--user-data-dir=./selenium_profile")
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    try:
+        chrome_options.add_argument("--user-data-dir=./selenium_profile")
+    except Exception as e:
+        # in windows if terminal wasn't admin, it will throw exception
+        log.error(e)
+        log.info("Skipping adding profile, using default")
     return webdriver.Chrome(options=chrome_options)
 
 def wait_for_element(browser: webdriver.Chrome, css_selector: str, timeout: int = 30) -> None:
