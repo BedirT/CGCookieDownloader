@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGCookie Downloader</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS for hover effect -->
+    <style>
+        .info-icon:hover {
+            color: #007BFF;  /* Bootstrap primary color */
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            
+            <div class="card">
+                <div class="card-header text-center">
+                    <h2>Download Course from CGCookie</h2>
+                </div>
+                <div class="card-body">
+                    <!-- Instruction Alert -->
+                    {% if not browser_opened %}
+                    <div class="alert alert-info">
+                        <strong>Note:</strong> After clicking "Download", a new browser window will open. Please log in on that window to proceed with the download.
+                        <!-- <button id="check-login-btn" class="btn btn-secondary btn-block">Check Login</button> -->
+                    </div>
+                    {% endif %}
+                    
+                    <form action="/" method="post">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label for="course_url">Course URL:</label>
+                            <input type="url" name="course_url" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="save_path">Save Path:</label>
+                            <i class="bi bi-info-circle ml-2 info-icon" data-toggle="tooltip" title="If left blank, it will save to the directory with course name."></i>
+                            <input type="text" name="save_path" class="form-control mt-2">
+                        </div>
+                        <div class="form-group form-check">
+                            <input type="checkbox" name="prefix_option" class="form-check-input">
+                            <label for="prefix_option" class="form-check-label">Add Prefix</label>
+                        </div>
+                        <div class="form-group form-check">
+                            <input type="checkbox" name="skip_if_exists" class="form-check-input">
+                            <label for="skip_if_exists" class="form-check-label">Skip if file exists</label>
+                        </div>
+                        <div class="form-group">
+                            <input type="submit" value="Download" class="btn btn-primary btn-block">
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% if browser_opened %}
+            <div class="alert alert-info mt-3">
+                <p>Processing the download, please wait...</p>
+            </div>
+            {% endif %}
+
+            {% if message %}
+            <div class="alert alert-info mt-3">
+                {{ message }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS and jQuery -->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+<script>
+    // Initialize Bootstrap tooltips
+    $(function () {
+        $('[data-toggle="tooltip"]').tooltip()
+    })
+</script>
+
+</body>
+</html>
