@@ -1,6 +1,7 @@
 import os
 import requests
 import logging
+import tqdm
 from typing import List, Tuple, Optional
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -56,7 +57,14 @@ def get_course_details(browser: webdriver.Chrome, course_url: str) -> Tuple[str,
         Tuple[str, str]: The course title and link.
     """
     browser.get(course_url)
-    input("Please log in on the opened browser and press Enter here once done...")
+    try:
+        # Wait for the "signed-in" class in the header to appear
+        WebDriverWait(browser, 300).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "body > header.signed-in"))
+        )
+    except TimeoutException:
+        browser.quit()
+        return False, "Login not detected. Please try again."
     wait_for_element(browser, "#js--course-list")
     
     soup = BeautifulSoup(browser.page_source, 'html.parser')
@@ -148,18 +156,30 @@ def download_course_files(browser: webdriver.Chrome, save_path: str) -> None:
         browser (webdriver.Chrome): The browser instance.
         save_path (str): The directory to save the files in.
     """
-    course_files_button = browser.find_element(By.CSS_SELECTOR, ".btn[data-bs-target='.js-courseFiles-modal']")
-    browser.execute_script("arguments[0].click();", course_files_button)
-    wait_for_element(browser, ".js-courseFiles-modal")
+    WebDriverWait(browser, 300).until(
+        EC.presence_of_element_located((By.XPATH, "//button[normalize-space()='Course Files']"))
+    )
+    course_files_button = browser.find_element(By.XPATH, "//button[normalize-space()='Course Files']")
+    course_files_button.click()
     
-    download_links = browser.find_elements(By.CSS_SELECTOR, ".js-courseFiles-modal a")
-    for link in download_links:
-        url = link.get_attribute('href')
-        filename = os.path.join(save_path, url.split('/')[-1])
-        download_video_from_url(url, filename)
+    links = browser.find_elements(By.CSS_SELECTOR, ".modal-body .text-truncate a")
+    link_details = [(link.get_attribute('href'), link.get_attribute('textContent').strip()) for link in links]
     
-    close_button = browser.find_element(By.CSS_SELECTOR, ".js-courseFiles-modal .btn-close")
-    close_button.click()
+    # download files by url
+    # create folder for files
+    files_path = os.path.join(save_path, "course_files/")
+    os.makedirs(files_path, exist_ok=True)
+    for url, filename in link_details:
+        if not filename.strip():  # Check if filename is empty or just spaces
+            logging.warning(f"Skipping a file due to empty filename. URL: {url}")
+            continue
+        logging.info(f"Downloading {filename}...")
+        response = requests.get(url, stream=True)
+        with open(os.path.join(files_path, filename), 'wb') as file:
+            for chunk in response.iter_content(chunk_size=1024):
+                if chunk:
+                    file.write(chunk)
+        logging.info(f"Downloaded {filename}")
 
 # =======================
 # Main Execution
@@ -181,11 +201,9 @@ if __name__ == "__main__":
     prefix_option = input("Would you like to add a prefix to filenames? (yes/no): ").lower() == 'yes'
     skip_if_exists = input("Would you like to skip videos that already exist? (yes/no): ").lower() == 'yes'
     
+    download_course_files(browser, save_path)
+
     video_lessons = get_video_lessons(browser)
-    logging.info("\nVideo Lessons:")
-    for idx, link in enumerate(video_lessons, 1):
-        logging.info(link)
-    
     for idx, link in enumerate(video_lessons, 1):
         logging.info(f"\nDownloading {link}...")
         browser.get(link)
@@ -204,6 +222,5 @@ if __name__ == "__main__":
                 continue
             download_video_from_url(video_url, full_path)
             logging.info(f"Downloaded {filename}")
-    
-    download_course_files(browser, save_path)
+
     browser.quit()
