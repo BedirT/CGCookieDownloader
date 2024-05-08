@@ -180,15 +180,30 @@ def download_course_files(browser: webdriver.Chrome, save_path: str) -> None:
                     file.write(chunk)
         logging.info(f"Downloaded {filename}")
 
+def check_current_files(directory):
+    return set(os.listdir(directory))
+
+def check_new_files(directory, old_files, timeout=120):
+    start_time = time.time()
+    while (time.time() - start_time) < timeout:
+        current_files = set(os.listdir(directory))
+        if current_files != old_files:
+            return True # new files found
+        time.sleep(1)
+    return False
+
 def download_video_manually(download_button_loc, download_button_loc_2):
     """Use PyAutoGUI to click the download button manually."""
     if download_button_loc:
         pyautogui.click(download_button_loc[0], download_button_loc[1])
         # wait a sec
         pyautogui.PAUSE = 3
+        old_files = check_current_files("~/Downloads")
         pyautogui.click(download_button_loc_2[0], download_button_loc_2[1])
         # wait a little more to make sure download starts
-        pyautogui.PAUSE = 1
+        downloaded = check_new_files("~/Downloads", old_files, timeout=120)
+        if not downloaded:
+            input("Download did not start within 2 minutes, Please start manually and press enter")
     else:
         raise ValueError("No download button location specified")
 
