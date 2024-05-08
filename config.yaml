@@ -1,0 +1,6 @@
+email: "your-email@example.com"
+password: "your-password"
+urls:
+  - "https://cgcookie.com/courses/fundamentals-of-digital-lighting-in-blender"
+  - "https://cgcookie.mavenseed.com/courses/another-course-url"
+  - "https://cgcookie.com/courses/yet-another-course-url"

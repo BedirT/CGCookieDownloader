@@ -11,6 +11,7 @@ from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 import json
 import pyautogui
+import yaml
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -213,13 +214,14 @@ def download_video_manually(download_button_loc, download_button_loc_2):
 # =======================
 
 if __name__ == "__main__":
-    email = input("Enter your email: ")
-    password = input("Enter your password: ")
+    config = yaml.safe_load(open("config.yml"))
+    email = config['email']
+    password = config['password']
 
     browser = setup_browser()
     login_and_redirect(browser, email, password)
 
-    course_urls = input("Enter course URLs separated by comma: ").split(',')
+    course_urls = yaml.safe_load(open("course_urls.yml"))['urls']
 
     # prefix_option = input("Would you like to add a prefix to filenames? (yes/no): ").lower() == 'yes'
     # skip_if_exists = input("Would you like to skip videos that already exist? (yes/no): ").lower() == 'yes'
