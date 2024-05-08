@@ -160,4 +160,5 @@ cython_debug/
 #.idea/
 
 .DS_Store
-selenium_profile
+selenium_profile/
+courses/

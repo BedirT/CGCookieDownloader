@@ -9,6 +9,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
+import json
+import pyautogui
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -178,19 +180,31 @@ def download_course_files(browser: webdriver.Chrome, save_path: str) -> None:
                     file.write(chunk)
         logging.info(f"Downloaded {filename}")
 
+def download_video_manually(download_button_loc, download_button_loc_2):
+    """Use PyAutoGUI to click the download button manually."""
+    if download_button_loc:
+        pyautogui.click(download_button_loc[0], download_button_loc[1])
+        # wait a sec
+        pyautogui.PAUSE = 3
+        pyautogui.click(download_button_loc_2[0], download_button_loc_2[1])
+        # wait a little more to make sure download starts
+        pyautogui.PAUSE = 1
+    else:
+        raise ValueError("No download button location specified")
+
+
 # =======================
 # Main Execution
 # =======================
 
 if __name__ == "__main__":
-    email = "bedirtpkn@gmail.com"#input("Enter your email: ")
-    password = "Bt@536353"#input("Enter your password: ")
+    email = input("Enter your email: ")
+    password = input("Enter your password: ")
 
     browser = setup_browser()
     login_and_redirect(browser, email, password)
 
-    # course_urls = input("Enter course URLs separated by comma: ").split(',')
-    course_urls = "https://cgcookie.com/courses/sessions-macro, https://cgcookie.mavenseed.com/courses/fundamentals-of-digital-lighting-in-blender".split(',')
+    course_urls = input("Enter course URLs separated by comma: ").split(',')
 
     # prefix_option = input("Would you like to add a prefix to filenames? (yes/no): ").lower() == 'yes'
     # skip_if_exists = input("Would you like to skip videos that already exist? (yes/no): ").lower() == 'yes'
@@ -210,7 +224,10 @@ if __name__ == "__main__":
         })
 
     base_url = "https://cgcookie.com"
+    download_button_loc = None
+    download_button_loc_2 = None
 
+    skipped_data = []
     for course in course_data:
         course_title = course['course_title']
         video_data = course['video_data']
@@ -228,18 +245,71 @@ if __name__ == "__main__":
                 wistia_id = extract_wistia_id(browser)
             except:
                 logging.warning("No Wistia ID found, skipping...")
+                skipped_data.append(
+                    {
+                        "course_title": course_title,
+                        "lesson_title": lesson_title,
+                        "video_url": None,
+                    }
+                )
                 continue
             if wistia_id:
-                video_url = get_wistia_video_url(wistia_id)
-                filename = f"{idx:02}-{lesson_title}.mp4" if prefix_option else f"{lesson_title}.mp4"
-                full_path = os.path.join(save_path, filename)
-                if skip_if_exists and os.path.exists(full_path):
-                    logging.info(f"Skipping {filename} as it already exists...")
-                    continue
-                download_video_from_url(video_url, full_path)
-                logging.info(f"Downloaded {filename}")
+                try: # try downloading with wistia id
+                    video_url = get_wistia_video_url(wistia_id)
+                    filename = f"{idx:02}-{lesson_title}.mp4" if prefix_option else f"{lesson_title}.mp4"
+                    full_path = os.path.join(save_path, filename)
+                    if skip_if_exists and os.path.exists(full_path):
+                        logging.info(f"Skipping {filename} as it already exists...")
+                        skipped_data.append(
+                            {
+                                "course_title": course_title,
+                                "lesson_title": lesson_title,
+                                "video_url": video_url,
+                            }
+                        )
+                        continue
+                    download_video_from_url(video_url, full_path)
+                    logging.info(f"Downloaded {filename}")
+                except:
+                    # if fails we do manual (mouse click) download
+                    # this is a fallback mechanism
+                    logging.warning("Failed to download video, trying manual download...")
+                    if not download_button_loc:
+                        logging.info("Please move the mouse to the download button and press enter. Make sure not to move the browser window after this.")
+                        input("Press enter when ready...")
+                        download_button_loc = pyautogui.position()
+                        logging.info(f"Now move the mouse to the second download button and press enter. Make sure not to move the browser window after this.")
+                        input("Press enter when ready...")
+                        download_button_loc_2 = pyautogui.position()
+
+                    try:
+                        download_video_manually(download_button_loc, download_button_loc_2)
+                        logging.info(f"Downloaded {lesson_title}")
+                    except:
+                        logging.warning("Failed to download video manually, skipping...")
+                        skipped_data.append(
+                            {
+                                "course_title": course_title,
+                                "lesson_title": lesson_title,
+                                "video_url": None,
+                            }
+                        )
 
             if idx == 1: # first lesson
-                download_course_files(browser, save_path)
+                try:
+                    download_course_files(browser, save_path)
+                except:
+                    logging.warning("No course files found, skipping...")
+                    skipped_data.append(
+                        {
+                            "course_title": course_title,
+                            "lesson_title": "Course Files",
+                            "video_url": None,
+                        }
+                    )
+
+    logging.info("Saving skipped data to skipped_data.json...")
+    with open("skipped_data.json", "w") as f:
+        json.dump(skipped_data, f, indent=4)
 
     browser.quit()

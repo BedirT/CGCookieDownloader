@@ -1,4 +1,0 @@
-django
-selenium
-requests
-beautifulsoup4
