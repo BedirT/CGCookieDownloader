@@ -1,7 +1,7 @@
 import os
 import requests
 import logging
-import tqdm
+from tqdm import tqdm
 from typing import List, Tuple, Optional
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -12,9 +12,34 @@ from bs4 import BeautifulSoup
 import json
 import pyautogui
 import yaml
+import time
+import re
+import shutil
+import subprocess
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
+
+def download_full_page(url, download_path):
+    try:
+        command = [
+            'wget',
+            '-p',  # download all necessary files to display HTML
+            '-k',  # convert links for offline viewing
+            '-P', download_path,  # directory to save downloaded files
+            url  # URL of the page to download
+        ]
+        subprocess.run(command, check=True)
+        print(f"Downloaded and saved webpage to {download_path}")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to download the webpage: {e}")
+
+def sanitize_filename(name):
+    """Sanitize a string to be safe for use as a filename."""
+    # Remove or replace characters that are illegal in filenames
+    sanitized = re.sub(r'[<>:"/\\|?*]', '-', name)  # Replace problematic characters with dash
+    sanitized = re.sub(r'[^\w\s.-]', '', sanitized)  # Remove any characters not alphanumeric, space, dot, or dash
+    return sanitized
 
 # =======================
 # Browser Utility Functions
@@ -193,16 +218,16 @@ def check_new_files(directory, old_files, timeout=120):
         time.sleep(1)
     return False
 
-def download_video_manually(download_button_loc, download_button_loc_2):
+def download_video_manually(download_button_loc, download_button_loc_2, downloads_path):
     """Use PyAutoGUI to click the download button manually."""
     if download_button_loc:
         pyautogui.click(download_button_loc[0], download_button_loc[1])
         # wait a sec
         pyautogui.PAUSE = 3
-        old_files = check_current_files("~/Downloads")
+        old_files = check_current_files(downloads_path)
         pyautogui.click(download_button_loc_2[0], download_button_loc_2[1])
         # wait a little more to make sure download starts
-        downloaded = check_new_files("~/Downloads", old_files, timeout=120)
+        downloaded = check_new_files(downloads_path, old_files, timeout=120)
         if not downloaded:
             input("Download did not start within 2 minutes, Please start manually and press enter")
     else:
@@ -221,7 +246,7 @@ if __name__ == "__main__":
     browser = setup_browser()
     login_and_redirect(browser, email, password)
 
-    course_urls = yaml.safe_load(open("course_urls.yml"))['urls']
+    course_urls = yaml.safe_load(open("config.yml"))['urls']
 
     # prefix_option = input("Would you like to add a prefix to filenames? (yes/no): ").lower() == 'yes'
     # skip_if_exists = input("Would you like to skip videos that already exist? (yes/no): ").lower() == 'yes'
@@ -233,17 +258,27 @@ if __name__ == "__main__":
     for course_url in course_urls:
         course_url = course_url.strip()
         course_title, video_data = get_course_details(browser, course_url)
-        logging.info(f"\nCourse Title: {course_title}")
+        logging.info(f"Course Title: {course_title}")
 
         course_data.append({
             "course_title": course_title,
             "video_data": video_data
         })
 
+    total_videos = sum(len(course['video_data']) for course in course_data)
+    logging.info("Course details fetched successfully.")
+    logging.info(f"Total courses found: {len(course_data)}")
+    logging.info(f"Total lessons found: {total_videos}")
+    logging.info("Starting download process...")
+
     base_url = "https://cgcookie.com"
     download_button_loc = None
     download_button_loc_2 = None
 
+    downloads_path = os.path.expanduser('~/Downloads') # default downloads path for manual download
+
+    progress_bar = tqdm(total=total_videos)
+    manually_downloaded_files = {} # matches old directory with new directory to move at the end
     skipped_data = []
     for course in course_data:
         course_title = course['course_title']
@@ -256,59 +291,81 @@ if __name__ == "__main__":
             lesson_title = data['title']
             lesson_link = data['link']
 
-            logging.info(f"\nDownloading {base_url + lesson_link}...")
+            tqdm.write(f"\nDownloading {base_url + lesson_link}...")
             browser.get(base_url + lesson_link)
             try:
                 wistia_id = extract_wistia_id(browser)
             except:
-                logging.warning("No Wistia ID found, skipping...")
+                logging.warning("No Wistia ID found, trying to save text content...")
+                html_content = browser.page_source
+                soup = BeautifulSoup(html_content, 'html.parser')
+                sanitized_title = sanitize_filename(lesson_title)
+                lesson_content = soup.find("div", class_="lesson-content-inner")
+                if lesson_content:
+                    text_content = lesson_content.get_text(strip=True)
+                    html_filename = os.path.join(save_path, f"{idx:02}-{sanitized_title}.html" if prefix_option else f"{sanitized_title}.html")
+
+                    with open(html_filename, 'w', encoding='utf-8') as file:
+                        file.write(html_content)
+                    logging.info(f"Saved HTML content for: {sanitized_title}")
+                else:
+                    logging.warning("Lesson content not found on the page.")
                 skipped_data.append(
                     {
                         "course_title": course_title,
                         "lesson_title": lesson_title,
-                        "video_url": None,
+                        "lesson_link": base_url + lesson_link,
                     }
                 )
-                continue
             if wistia_id:
+                filename = f"{idx:02}-{lesson_title}.mp4" if prefix_option else f"{lesson_title}.mp4"
+                logger.info(f"Downloading {filename}...")
+                full_path = os.path.join(save_path, filename)
+                if skip_if_exists and os.path.exists(full_path):
+                    tqdm.write(f"Skipping {filename} as it already exists...")
+                    progress_bar.update(1)
+                    skipped_data.append(
+                        {
+                            "course_title": course_title,
+                            "lesson_title": lesson_title,
+                            "lesson_link": base_url + lesson_link,
+                        }
+                    )
+                    continue
                 try: # try downloading with wistia id
                     video_url = get_wistia_video_url(wistia_id)
-                    filename = f"{idx:02}-{lesson_title}.mp4" if prefix_option else f"{lesson_title}.mp4"
-                    full_path = os.path.join(save_path, filename)
-                    if skip_if_exists and os.path.exists(full_path):
-                        logging.info(f"Skipping {filename} as it already exists...")
-                        skipped_data.append(
-                            {
-                                "course_title": course_title,
-                                "lesson_title": lesson_title,
-                                "video_url": video_url,
-                            }
-                        )
-                        continue
                     download_video_from_url(video_url, full_path)
-                    logging.info(f"Downloaded {filename}")
+                    tqdm.write(f"Downloaded {filename}")
                 except:
                     # if fails we do manual (mouse click) download
                     # this is a fallback mechanism
                     logging.warning("Failed to download video, trying manual download...")
                     if not download_button_loc:
-                        logging.info("Please move the mouse to the download button and press enter. Make sure not to move the browser window after this.")
+                        tqdm.write("Please move the mouse to the download button and press enter. Make sure not to move the browser window after this.")
                         input("Press enter when ready...")
                         download_button_loc = pyautogui.position()
-                        logging.info(f"Now move the mouse to the second download button and press enter. Make sure not to move the browser window after this.")
+                        tqdm.write(f"Now move the mouse to the second download button and press enter. Make sure not to move the browser window after this.")
                         input("Press enter when ready...")
                         download_button_loc_2 = pyautogui.position()
 
                     try:
-                        download_video_manually(download_button_loc, download_button_loc_2)
-                        logging.info(f"Downloaded {lesson_title}")
-                    except:
-                        logging.warning("Failed to download video manually, skipping...")
+                        pre_course_unrelated_files = set(os.listdir(downloads_path))
+                        time.sleep(2) # wait for download to start
+                        download_video_manually(download_button_loc, download_button_loc_2, downloads_path)
+                        tqdm.write(f"Downloading {lesson_title}")
+                        # move the new file to the course folder
+                        new_file = set(os.listdir(downloads_path)) - pre_course_unrelated_files
+                        new_file = list(new_file)[0]
+                        sanitized_title = sanitize_filename(lesson_title)
+                        new_name = f"{idx:02}-{sanitized_title}.mp4" if prefix_option else f"{sanitized_title}.mp4"
+                        manually_downloaded_files[os.path.join(downloads_path, new_file)] = os.path.join(save_path, new_name)
+                    except Exception as e:
+                        logging.warning(f"Failed to download video manually: {e}, skipping...")
                         skipped_data.append(
                             {
                                 "course_title": course_title,
                                 "lesson_title": lesson_title,
-                                "video_url": None,
+                                "lesson_link": base_url + lesson_link,
                             }
                         )
 
@@ -322,8 +379,21 @@ if __name__ == "__main__":
                             "course_title": course_title,
                             "lesson_title": "Course Files",
                             "video_url": None,
+                            "lesson_link": None,
                         }
                     )
+
+            progress_bar.update(1)
+
+    # handle manually downloaded files
+    if manually_downloaded_files:
+        input("Please make sure all the manual downloads are complete then press enter to move files to course folders.")
+    for old, new in manually_downloaded_files.items():
+        try:
+            print(f"Moving {old} to {new}")
+            shutil.move(old, new)
+        except Exception as e:
+            logging.warning(f"Failed to move file: {e}")
 
     logging.info("Saving skipped data to skipped_data.json...")
     with open("skipped_data.json", "w") as f:
